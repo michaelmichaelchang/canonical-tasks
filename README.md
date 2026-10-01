@@ -139,6 +139,10 @@ python3 -m unittest discover -s tests -t .
 
 Includes [`tests/test_adversarial.py`](tests/test_adversarial.py): the same input twice, renames that must keep identity, two sources with one title, completions without proof, illegal and reopening transitions, and eight kinds of corrupt task file. Each refusal is checked to leave the files on disk unchanged. [`tests/test_review_fixes.py`](tests/test_review_fixes.py) covers the cases a pre-release review found: null evidence, refusals after preparation, retries, malformed fields, and symlinks.
 
+## How it was built
+
+Written with Claude (Anthropic), using Claude Code, from the version I run every day. OpenAI Codex then reviewed it in three passes before release. Its findings, and the fixes, are in the commit history.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
