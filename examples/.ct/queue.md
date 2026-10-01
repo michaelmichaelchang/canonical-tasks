@@ -2,7 +2,7 @@
 kind: generated-task-queue
 do_not_edit: true
 generated_at: 2026-10-02T06:00:00-07:00
-index_revision: eb6ef551d1f85326
+index_revision: 8cfdde79ef1214b6
 ---
 
 # Task Queue
@@ -11,12 +11,12 @@ index_revision: eb6ef551d1f85326
 
 ## Today
 
-- [waiting] [Reply to Alex about the revised contract](../tasks/tsk-01M3WQ58HJAJ6GKXBCN9ZABR81.md) `tsk-01M3WQ58HJAJ6GKXBCN9ZABR81`
+- [waiting] [Reply to Alex about the revised contract](../tasks/tsk-01M3WQBP0G4DQ094A4DTJF8XZZ.md) `tsk-01M3WQBP0G4DQ094A4DTJF8XZZ`
 
 ## Retained
 
-- [parked] [Book the car service](../tasks/tsk-01M3WQ58HKNT5MX8MDHYK03GTQ.md) `tsk-01M3WQ58HKNT5MX8MDHYK03GTQ`
+- [parked] [Book the car service](../tasks/tsk-01M3WQBP0J2FT6YBY9CG1SVZZH.md) `tsk-01M3WQBP0J2FT6YBY9CG1SVZZH`
 
 ## Closed
 
-- [done] [Decide on the job fair](../tasks/tsk-01M3WQ58HKYA35FK8P5077EKN9.md) `tsk-01M3WQ58HKYA35FK8P5077EKN9`
+- [done] [Decide on the job fair](../tasks/tsk-01M3WQBP0HJGQVF9YZKXNKDPTJ.md) `tsk-01M3WQBP0HJGQVF9YZKXNKDPTJ`

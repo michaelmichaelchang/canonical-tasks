@@ -62,6 +62,27 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def claim_fingerprint(claim: dict[str, Any]) -> str:
+    """The meaning of a claim, for telling a retry from a different claim.
+
+    Evidence ``observed_revision`` is left out: the CLI stamps it with the
+    current time, so it differs on every retry without changing the meaning.
+    """
+    evidence = claim.get("evidence") or []
+    meaning = {
+        "disposition": claim.get("disposition"),
+        "declared_outcome": str(claim.get("declared_outcome", "")).strip(),
+        "verification": claim.get("verification", "pending"),
+        "attestation": claim.get("attestation"),
+        "evidence": [[e.get("source_ref"), e.get("assertion")] if isinstance(e, dict) else e for e in evidence]
+        if isinstance(evidence, list) else evidence,
+        "review_after": claim.get("review_after"),
+        "due": claim.get("due", "__unset__"),
+        "decision_reason": claim.get("decision_reason"),
+    }
+    return hashlib.sha256(canonical_json(meaning).encode()).hexdigest()[:16]
+
+
 def record_id(session_id: str, task_id: str) -> str:
     """One record per task per session, so a retried session is a no-op."""
     digest = hashlib.sha256(f"{session_id}\0{task_id}".encode()).hexdigest()[:16]
@@ -165,8 +186,10 @@ def build_records(
                     raise Refusal(f"claim {index}: due must be YYYY-MM-DD or null") from error
             if due != task.get("due"):
                 due_change = {"from": task.get("due"), "to": due}
-        if requested == "parked" and task.get("due") is not None and due_change is None:
-            due_change = {"from": task.get("due"), "to": None}  # parking clears the due date
+        if requested == "parked":
+            if due not in ("__unset__", None):
+                raise Refusal(f"claim {index}: parking clears the due date; don't pass one")
+            due_change = {"from": task.get("due"), "to": None} if task.get("due") is not None else None
         review_after = claim.get("review_after")
         if requested == "scheduled" and not review_after:
             raise Refusal(f"claim {index}: review_after is required for {requested}")
@@ -211,6 +234,7 @@ def build_records(
             "review_after": review_after,
             "due_change": due_change,
             "decision_reason": claim.get("decision_reason"),
+            "claim_fingerprint": claim_fingerprint(claim),
         })
     return records
 
@@ -393,8 +417,16 @@ def claim_for_verb(
     return claim
 
 
+class PartialWrite(RuntimeError):
+    """The disk failed after writing began. Re-run the same session to finish."""
+
+
 def run_claims(root: Path, claims: list[dict[str, Any]], *, session_id: str, now: str, write: bool) -> dict[str, Any]:
-    """Validate, prepare, then write task files and the log. Refusal writes nothing."""
+    """Validate and prepare everything, then write the log, then the task files.
+
+    A refusal writes nothing. If the disk fails partway, the log already holds
+    the record, and re-running the same session applies whatever is missing.
+    """
     log_path = root / LOG_RELATIVE
     existing = load_log(log_path)
     pending: list[dict[str, Any]] = []
@@ -406,28 +438,30 @@ def run_claims(root: Path, claims: list[dict[str, Any]], *, session_id: str, now
             pending.append(claim)
             continue
         # This session already recorded a claim for this task. Same meaning:
-        # a retry, so do nothing. Different meaning: refuse.
-        if (logged.get("requested_disposition") != claim.get("disposition")
-                or logged.get("declared_outcome") != str(claim.get("declared_outcome", "")).strip()):
+        # a retry. Different meaning: refuse.
+        if logged.get("claim_fingerprint") != claim_fingerprint(claim):
             raise Refusal(f"session {session_id} already recorded a different claim for {task_id}")
         already.append(logged)
-    if not pending and already:
-        return {"mode": "write" if write else "dry-run", "appended": 0, "idempotent": len(already),
-                "written": [], "records": already}
-    records = build_records(claims=pending, session_id=session_id, root=root, generated_at=now)
+    records = build_records(claims=pending, session_id=session_id, root=root, generated_at=now) if pending else []
     if not write:
         return {"mode": "dry-run", "records": already + records}
-    prepared = prepare_writes(root, records)
+    # Logged but not yet applied (an earlier run failed mid-write): finish it.
+    prepared = prepare_writes(root, already + records)
     to_log = new_log_records(existing, records)
-    written = commit_writes(prepared)
-    if to_log:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a") as handle:
-            for record in to_log:
-                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-    return {"mode": "write", "appended": len(to_log), "idempotent": len(already) + len(records) - len(to_log),
+    try:
+        if to_log:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a") as handle:
+                for record in to_log:
+                    handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+        written = commit_writes(prepared)
+    except OSError as error:
+        raise PartialWrite(
+            f"disk error after writing began ({error}); re-run with --session {session_id} to finish"
+        ) from error
+    return {"mode": "write", "appended": len(to_log), "idempotent": len(already),
             "written": [path.relative_to(root).as_posix() for path in written], "records": already + records}
 
 

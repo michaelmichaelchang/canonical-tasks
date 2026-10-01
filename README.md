@@ -43,7 +43,7 @@ One Markdown file per task, at `tasks/tsk-<ULID>.md`. Frontmatter is strict top-
 ```markdown
 ---
 type: task
-id: tsk-01M3WQ58HKYA35FK8P5077EKN9
+id: tsk-01M3WQBP0HJGQVF9YZKXNKDPTJ
 title: "Decide on the job fair"
 status: done
 created_at: 2026-09-28T22:23:48-07:00
@@ -76,7 +76,7 @@ A decision: go or don't.
 |---|---|
 | `id` | `tsk-` plus a ULID. Permanent; the filename must match. |
 | `status` | `proposed`, `active`, `waiting`, `scheduled`, `parked`, `done`, `dismissed` |
-| `due` | The date the work is owed. Only an explicit change moves it, and parking clears it. |
+| `due` | The date the work is owed. Only an explicit change moves it. Parking always clears it, and refuses a new one. |
 | `review_after` | When a `waiting` or `scheduled` task comes back into view. |
 | `source_refs` | Where the task came from. At least one; any `path` must resolve inside the root, symlinks included. |
 | `origin` | How the task was created (`manual` needs an `area`; `signal` needs both keys below). |
@@ -104,9 +104,9 @@ Every verb (`done`, `wait`, `park`, `schedule`, `dismiss`, `reactivate`, `resche
 1. Validates the whole ledger first. One corrupt file blocks every change.
 2. Checks the transition table and the closing rule. `done` without evidence or attestation is held. Evidence fields must be non-empty text; nothing is coerced.
 3. Builds every changed task file in memory and validates the result.
-4. Only then writes: each task file gets one event row, replaced atomically and only if it's unchanged since it was read. Then `tasks/_log.jsonl` gets one record per task.
+4. Only then writes: first one record per task to `tasks/_log.jsonl`, then one event row to each task file, replaced atomically and only if it's unchanged since it was read.
 
-If any step refuses, nothing is written. The log keeps one record per task per session: re-running a session's claim is a no-op, and a different claim under the same session ID is refused rather than overwriting history.
+If any step refuses, nothing is written. If the disk fails after writing has started, the command says so (`ERROR`, not `REFUSED`) and names the session; re-running with that `--session` applies whatever the log holds that a task file doesn't. The log keeps one record per task per session: re-running the same claim is a no-op, and a claim that differs in any way (outcome, evidence, dates, reason) under the same session ID is refused rather than overwriting history.
 
 The code checks that a close *carries* evidence. It can't check that the evidence says what an agent claims. That part is on the person, and it's quick because evidence is a pointer.
 

@@ -105,6 +105,9 @@ def main(argv: list[str] | None = None) -> int:
         result["summary"] = summary
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return 0
+    except actions.PartialWrite as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 4
     except (OSError, ValueError, LedgerError, actions.Refusal) as error:
         print(f"REFUSED: {error}", file=sys.stderr)
         return 3

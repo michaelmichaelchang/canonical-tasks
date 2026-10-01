@@ -219,6 +219,9 @@ def validate_task(task: ParsedTask, root: Path) -> list[str]:
             if not isinstance(ref, dict) or not ref.get("kind") or not ref.get("id"):
                 errors.append(f"source_refs[{index}] must contain kind and id")
                 continue
+            if "path" in ref and not isinstance(ref["path"], str):
+                errors.append(f"source_refs[{index}] path must be text")
+                continue
             if ref.get("path"):
                 try:
                     target = resolve_root_path(root, ref["path"], task.path)

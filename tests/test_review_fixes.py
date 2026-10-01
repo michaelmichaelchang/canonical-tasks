@@ -104,6 +104,44 @@ class ReviewFixes(RootCase):
         for link in links:
             self.assertTrue((out / link).resolve().exists(), link)
 
+    def test_non_text_source_path_fails_validation_not_crash(self) -> None:
+        self.add_task(source_refs=json.dumps([{"kind": "note", "id": "n", "path": 42}]))
+        with self.assertRaisesRegex(ledger.LedgerError, "path must be text"):
+            ledger.load_ledger(self.tasks, self.root)
+
+    def test_retry_that_changes_meaning_refuses(self) -> None:
+        task_id = self.add_task(due="2026-10-03")
+        base = {"task_id": task_id, "disposition": "active", "declared_outcome": "pushed",
+                "verification": "not-applicable", "due": "2026-10-10"}
+        actions.run_claims(self.root, [base], session_id="s", now=LATER, write=True)
+        for change in ({"due": "2026-10-20"}, {"review_after": "2026-10-04"}, {"decision_reason": "other"}):
+            with self.subTest(change):
+                with self.assertRaisesRegex(actions.Refusal, "different claim"):
+                    actions.run_claims(self.root, [dict(base, **change)], session_id="s", now=LATER, write=True)
+
+    def test_parking_with_a_due_date_refuses(self) -> None:
+        task_id = self.add_task(due="2026-10-03")
+        with self.assertRaisesRegex(actions.Refusal, "parking clears the due date"):
+            actions.run_claims(self.root, [{"task_id": task_id, "disposition": "parked", "declared_outcome": "later",
+                                            "verification": "not-applicable", "due": "2026-10-20"}],
+                               session_id="s", now=LATER, write=True)
+
+    def test_disk_failure_mid_write_is_finished_by_a_retry(self) -> None:
+        from unittest import mock
+        task_id = self.add_task()
+        claim = {"task_id": task_id, "disposition": "done", "declared_outcome": "sent",
+                 "verification": "owner-attested", "attestation": "sent"}
+        with mock.patch.object(actions, "commit_writes", side_effect=OSError("disk full")):
+            with self.assertRaisesRegex(actions.PartialWrite, "re-run with --session s"):
+                actions.run_claims(self.root, [claim], session_id="s", now=LATER, write=True)
+        self.assertEqual(self.status_of(task_id), "active")
+        self.assertTrue((self.root / actions.LOG_RELATIVE).exists())
+        result = actions.run_claims(self.root, [claim], session_id="s", now=LATER, write=True)
+        self.assertEqual(result["appended"], 0)
+        self.assertEqual(self.status_of(task_id), "done")
+        log_lines = (self.root / actions.LOG_RELATIVE).read_text().splitlines()
+        self.assertEqual(len(log_lines), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
