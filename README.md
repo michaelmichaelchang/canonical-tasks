@@ -141,7 +141,7 @@ Includes [`tests/test_adversarial.py`](tests/test_adversarial.py): the same inpu
 
 ## How it was built
 
-Written with Claude (Anthropic), using Claude Code, from the version I run every day. OpenAI Codex then reviewed it in three passes before release. Its findings, and the fixes, are in the commit history.
+Written with Claude and Codex.
 
 ## License
 
