@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "canonical-tasks"
+version = "0.1.0"
+description = "A reference implementation of durable, attributable tasks that people and agents can both rely on."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+ct = "canonical_tasks.cli:main"
+
+[tool.setuptools]
+packages = ["canonical_tasks"]
