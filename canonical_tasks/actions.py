@@ -2,8 +2,10 @@
 
 Every change to a task is a *claim*: a task ID, a requested disposition, a
 declared outcome, and how that outcome is known. A claim is validated against
-the task's current state and the transition table, recorded in an append-only
-JSONL log, and only then applied to the task file as one new event row.
+the task's current state and the transition table, every resulting file is
+built and validated in memory, and only then is anything written: the task
+file gets one new event row, and the append-only JSONL log gets one record.
+If anything is refused, nothing is written.
 
 The core safety rule: a claim of ``done`` closes a task only with structured
 evidence (``verified``) or the owner's own words (``owner-attested``). A
@@ -29,6 +31,7 @@ from .ledger import (
     load_ledger,
     new_task_id,
     parse_task,
+    parse_task_text,
     transition_allowed,
     validate_task,
     AREA_RE,
@@ -96,10 +99,11 @@ def validate_evidence(evidence: Any, *, index: int) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             raise Refusal(f"claim {index}: evidence {evidence_index} must be an object")
         required = ("source_ref", "observed_revision", "assertion")
-        missing = [key for key in required if not str(item.get(key, "")).strip()]
+        # No coercion: a null or a number is not evidence, even as text.
+        missing = [key for key in required if not isinstance(item.get(key), str) or not item[key].strip()]
         if missing:
-            raise Refusal(f"claim {index}: evidence {evidence_index} missing {', '.join(missing)}")
-        normalized.append({key: str(item[key]).strip() for key in required})
+            raise Refusal(f"claim {index}: evidence {evidence_index} needs non-empty text for {', '.join(missing)}")
+        normalized.append({key: item[key].strip() for key in required})
     return normalized
 
 
@@ -161,6 +165,8 @@ def build_records(
                     raise Refusal(f"claim {index}: due must be YYYY-MM-DD or null") from error
             if due != task.get("due"):
                 due_change = {"from": task.get("due"), "to": due}
+        if requested == "parked" and task.get("due") is not None and due_change is None:
+            due_change = {"from": task.get("due"), "to": None}  # parking clears the due date
         review_after = claim.get("review_after")
         if requested == "scheduled" and not review_after:
             raise Refusal(f"claim {index}: review_after is required for {requested}")
@@ -209,9 +215,8 @@ def build_records(
     return records
 
 
-def append_log(log_path: Path, records: list[dict[str, Any]]) -> dict[str, int]:
-    """Append records once. A retry is a no-op; a conflicting retry refuses."""
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+def load_log(log_path: Path) -> dict[str, dict[str, Any]]:
+    """Every record in the log by record_id. A corrupt line refuses."""
     existing: dict[str, dict[str, Any]] = {}
     if log_path.exists():
         for line_number, line in enumerate(log_path.read_text().splitlines(), start=1):
@@ -223,7 +228,11 @@ def append_log(log_path: Path, records: list[dict[str, Any]]) -> dict[str, int]:
                 raise Refusal(f"log is corrupt at line {line_number}: {error.msg}") from error
             if record.get("record_id"):
                 existing[record["record_id"]] = record
+    return existing
 
+
+def new_log_records(existing: dict[str, dict[str, Any]], records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Records not yet in the log. A same-id record with different meaning refuses."""
     new_records: list[dict[str, Any]] = []
     for record in records:
         old = existing.get(record["record_id"])
@@ -238,7 +247,13 @@ def append_log(log_path: Path, records: list[dict[str, Any]]) -> dict[str, int]:
                 f"record {record['record_id']} already exists with different content; "
                 "use a new session id rather than overwriting history"
             )
+    return new_records
 
+
+def append_log(log_path: Path, records: list[dict[str, Any]]) -> dict[str, int]:
+    """Append records once. A retry is a no-op; a conflicting retry refuses."""
+    new_records = new_log_records(load_log(log_path), records)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     if new_records:
         with log_path.open("a") as handle:
             for record in new_records:
@@ -260,30 +275,34 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ").strip()
 
 
-def apply_records(root: Path, records: list[dict[str, Any]]) -> list[str]:
-    """Apply each record to its task file as one appended event row.
+def prepare_writes(root: Path, records: list[dict[str, Any]]) -> list[tuple[Path, str, bytes]]:
+    """Build every task file change in memory and validate it. Writes nothing.
 
-    Refuses if the file changed since the claim was resolved. Re-validates
-    after writing and restores the original bytes if the result is invalid.
+    Returns (path, sha256 of the bytes it was built from, new bytes) for each
+    record not already applied. Refuses if a file changed since the claim was
+    resolved, or if the result wouldn't validate.
     """
-    written: list[str] = []
+    prepared: list[tuple[Path, str, bytes]] = []
+    tasks_dir = (root / TASKS_DIR).resolve()
     for record in records:
         note_path = root / record["task_ref"]["path"]
+        if note_path.is_symlink() or note_path.resolve().parent != tasks_dir:
+            raise Refusal(f"{note_path} is not a regular file in {TASKS_DIR}/")
         original = note_path.read_bytes()
-        task = parse_task(note_path)
+        task = parse_task_text(original, note_path)
         text = original.decode("utf-8")
         if record["record_id"] in text:
             continue  # already applied; a retry after a partial run is a no-op
         if task.content_sha256 != record["task_ref"]["observed_revision"]:
             raise Refusal(f"{note_path.name} changed since the claim was resolved")
+        if EVENT_ROW_HEADER not in text:
+            raise Refusal(f"{note_path.name} has no event log table")
         detail = _cell(record["declared_outcome"])
         if record["verification_pending"]:
             detail = f"completion held for evidence: {detail}"
         elif record.get("attestation"):
             detail = f"{detail} (owner-attested: \"{_cell(record['attestation'])}\")"
         due_change = record.get("due_change")
-        if record["proposed_to"] == "parked" and task.fields.get("due") is not None and not due_change:
-            due_change = {"from": task.fields.get("due"), "to": None}  # parking clears the due date
         event = "reconciled"
         if due_change and record["proposed_to"] == record["from"] and not record["verification_pending"]:
             event = "rescheduled"
@@ -293,8 +312,6 @@ def apply_records(root: Path, records: list[dict[str, Any]]) -> list[str]:
             f"| {record['generated_at']} | {event} | {record['from']} | {record['proposed_to']} | "
             f"{detail} (record `{record['record_id']}`, verification {record['verification']}) |"
         )
-        if EVENT_ROW_HEADER not in text:
-            raise Refusal(f"{note_path.name} has no event log table")
         text = text.rstrip("\n") + "\n" + row + "\n"
         text = _set_frontmatter(text, "status", record["proposed_to"])
         text = _set_frontmatter(text, "updated_at", record["generated_at"])
@@ -302,16 +319,31 @@ def apply_records(root: Path, records: list[dict[str, Any]]) -> list[str]:
         text = _set_frontmatter(text, "review_after", review_after if review_after else "null")
         if due_change:
             text = _set_frontmatter(text, "due", due_change["to"] if due_change["to"] else "null")
-        note_path.write_bytes(text.encode("utf-8"))
+        new_bytes = text.encode("utf-8")
         try:
-            errors = validate_task(parse_task(note_path), root)
+            errors = validate_task(parse_task_text(new_bytes, note_path), root)
         except LedgerError as error:
             errors = [str(error)]
         if errors:
-            note_path.write_bytes(original)
-            raise Refusal(f"{note_path.name} failed validation after write: {errors}")
-        written.append(note_path.relative_to(root).as_posix())
-    return written
+            raise Refusal(f"{note_path.name} would fail validation after this change: {errors}")
+        prepared.append((note_path, task.content_sha256, new_bytes))
+    return prepared
+
+
+def commit_writes(prepared: list[tuple[Path, str, bytes]]) -> list[Path]:
+    """Re-check every file is unchanged, then replace each one atomically."""
+    for path, sha, _ in prepared:
+        if hashlib.sha256(path.read_bytes()).hexdigest() != sha:
+            raise Refusal(f"{path.name} changed while this operation was running; nothing written")
+    for path, _, new_bytes in prepared:
+        atomic_write(path, new_bytes.decode("utf-8"))
+    return [path for path, _, _ in prepared]
+
+
+def apply_records(root: Path, records: list[dict[str, Any]]) -> list[str]:
+    """Apply each record to its task file as one appended event row."""
+    written = commit_writes(prepare_writes(root, records))
+    return [path.relative_to(root).as_posix() for path in written]
 
 
 def claim_for_verb(
@@ -362,12 +394,41 @@ def claim_for_verb(
 
 
 def run_claims(root: Path, claims: list[dict[str, Any]], *, session_id: str, now: str, write: bool) -> dict[str, Any]:
-    records = build_records(claims=claims, session_id=session_id, root=root, generated_at=now)
+    """Validate, prepare, then write task files and the log. Refusal writes nothing."""
+    log_path = root / LOG_RELATIVE
+    existing = load_log(log_path)
+    pending: list[dict[str, Any]] = []
+    already: list[dict[str, Any]] = []
+    for claim in claims if isinstance(claims, list) else []:
+        task_id = claim.get("task_id") if isinstance(claim, dict) else None
+        logged = existing.get(record_id(session_id, task_id)) if isinstance(task_id, str) else None
+        if logged is None:
+            pending.append(claim)
+            continue
+        # This session already recorded a claim for this task. Same meaning:
+        # a retry, so do nothing. Different meaning: refuse.
+        if (logged.get("requested_disposition") != claim.get("disposition")
+                or logged.get("declared_outcome") != str(claim.get("declared_outcome", "")).strip()):
+            raise Refusal(f"session {session_id} already recorded a different claim for {task_id}")
+        already.append(logged)
+    if not pending and already:
+        return {"mode": "write" if write else "dry-run", "appended": 0, "idempotent": len(already),
+                "written": [], "records": already}
+    records = build_records(claims=pending, session_id=session_id, root=root, generated_at=now)
     if not write:
-        return {"mode": "dry-run", "records": records}
-    counts = append_log(root / LOG_RELATIVE, records)
-    written = apply_records(root, records)
-    return {"mode": "write", **counts, "written": written, "records": records}
+        return {"mode": "dry-run", "records": already + records}
+    prepared = prepare_writes(root, records)
+    to_log = new_log_records(existing, records)
+    written = commit_writes(prepared)
+    if to_log:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a") as handle:
+            for record in to_log:
+                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    return {"mode": "write", "appended": len(to_log), "idempotent": len(already) + len(records) - len(to_log),
+            "written": [path.relative_to(root).as_posix() for path in written], "records": already + records}
 
 
 def create_task(
@@ -417,6 +478,11 @@ def create_task(
     ])
     tasks_dir = root / TASKS_DIR
     path = tasks_dir / f"{task_id}.md"
+    if tasks_dir.exists():
+        resolve_tasks(root)  # an invalid ledger refuses before anything is written
+    errors = validate_task(parse_task_text(note.encode("utf-8"), path), root)
+    if errors:
+        raise Refusal(f"new task would not validate: {errors}")
     if write:
         tasks_dir.mkdir(parents=True, exist_ok=True)
         atomic_write(path, note)

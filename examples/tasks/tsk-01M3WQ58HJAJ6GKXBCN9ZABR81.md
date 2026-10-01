@@ -1,6 +1,6 @@
 ---
 type: task
-id: tsk-01M3WPQCM4S3Z214D92YTF80G4
+id: tsk-01M3WQ58HJAJ6GKXBCN9ZABR81
 title: "Reply to Alex about the revised contract"
 status: waiting
 created_at: 2026-09-28T09:05:00-07:00
@@ -26,5 +26,5 @@ Alex has the revised contract, or knows when to expect it.
 | At | Event | From | To | Detail |
 |---|---|---|---|---|
 | 2026-09-28T09:05:00-07:00 | created | — | active | Created directly (session `demo-1`) |
-| 2026-09-28T16:40:00-07:00 | reconciled | active | waiting | Sent a draft; Alex is checking with legal. (record `rec-a3f436b955ebf323`, verification not-applicable) |
-| 2026-09-30T09:00:00-07:00 | reconciled | waiting | waiting | completion held for evidence: I think Alex has it by now. (record `rec-22b75acc0e32f7db`, verification pending) |
+| 2026-09-28T16:40:00-07:00 | reconciled | active | waiting | Sent a draft; Alex is checking with legal. (record `rec-c86b994ee8429f06`, verification not-applicable) |
+| 2026-09-30T09:00:00-07:00 | reconciled | waiting | waiting | completion held for evidence: I think Alex has it by now. (record `rec-4275ac79bec3a6ae`, verification pending) |

@@ -1,7 +1,7 @@
 {
   "do_not_edit": true,
   "generated_at": "2026-10-02T06:00:00-07:00",
-  "index_revision": "e734ef4de005f84d",
+  "index_revision": "eb6ef551d1f85326",
   "kind": "generated-task-state",
   "schema_version": 1,
   "task_count": 3,
@@ -12,16 +12,16 @@
         "expected_outcome": "Alex has the revised contract, or knows when to expect it.",
         "kind": "owner-declared"
       },
-      "content_sha256": "c2f05aee23ae0b12857e3ae965a8d8d2db36f27438a3f8bd6ad02dc0b15fad34",
+      "content_sha256": "0699abc9226ca59c0915ec6afacf47acb40c736847ccabe4fc8ce99b37dc5f8c",
       "created_at": "2026-09-28T09:05:00-07:00",
       "due": null,
-      "id": "tsk-01M3WPQCM4S3Z214D92YTF80G4",
+      "id": "tsk-01M3WQ58HJAJ6GKXBCN9ZABR81",
       "origin": {
         "created_at": "2026-09-28T09:05:00-07:00",
         "session_id": "demo-1",
         "type": "manual"
       },
-      "path": "tasks/tsk-01M3WPQCM4S3Z214D92YTF80G4.md",
+      "path": "tasks/tsk-01M3WQ58HJAJ6GKXBCN9ZABR81.md",
       "review_after": "2026-10-02",
       "source_refs": [
         {
@@ -40,21 +40,49 @@
       "updated_at": "2026-09-30T09:00:00-07:00"
     },
     {
+      "area": "home",
+      "completion_check": {
+        "expected_outcome": "A service appointment on the calendar.",
+        "kind": "owner-declared"
+      },
+      "content_sha256": "a274ad313466a59f03f06bd952ab79db1fea0160141f3f7b1a2b5e849eeb055a",
+      "created_at": "2026-09-29T08:00:00-07:00",
+      "due": null,
+      "id": "tsk-01M3WQ58HKNT5MX8MDHYK03GTQ",
+      "origin": {
+        "created_at": "2026-09-29T08:00:00-07:00",
+        "session_id": "demo-3",
+        "type": "manual"
+      },
+      "path": "tasks/tsk-01M3WQ58HKNT5MX8MDHYK03GTQ.md",
+      "review_after": null,
+      "source_refs": [
+        {
+          "id": "demo-3",
+          "kind": "owner-request"
+        }
+      ],
+      "status": "parked",
+      "title": "Book the car service",
+      "type": "task",
+      "updated_at": "2026-09-30T08:00:00-07:00"
+    },
+    {
       "area": "career",
       "completion_check": {
         "expected_outcome": "A decision: go or don't.",
         "kind": "owner-declared"
       },
-      "content_sha256": "3da1e91630d59adbd2171899ead0a1de75d9754c6ad418b6974cbb98cfb78236",
+      "content_sha256": "76d701021b51491368d4fbd5d93ae5d713b8716d9a7d04d8792bdfda3c2b7e79",
       "created_at": "2026-09-28T22:23:48-07:00",
       "due": null,
-      "id": "tsk-01M3WPQCM51RBDYBXB00Z57QTE",
+      "id": "tsk-01M3WQ58HKYA35FK8P5077EKN9",
       "origin": {
         "created_at": "2026-09-28T22:23:48-07:00",
         "session_id": "demo-2",
         "type": "manual"
       },
-      "path": "tasks/tsk-01M3WPQCM51RBDYBXB00Z57QTE.md",
+      "path": "tasks/tsk-01M3WQ58HKYA35FK8P5077EKN9.md",
       "review_after": null,
       "source_refs": [
         {
@@ -71,34 +99,6 @@
       "title": "Decide on the job fair",
       "type": "task",
       "updated_at": "2026-09-28T22:24:06-07:00"
-    },
-    {
-      "area": "home",
-      "completion_check": {
-        "expected_outcome": "A service appointment on the calendar.",
-        "kind": "owner-declared"
-      },
-      "content_sha256": "491a6a5408ef3ce8b10257efadc0b2418c61a4e1e83d07659b10f3ccbc681ffd",
-      "created_at": "2026-09-29T08:00:00-07:00",
-      "due": null,
-      "id": "tsk-01M3WPQCM57TERDGHAGH9TG5NF",
-      "origin": {
-        "created_at": "2026-09-29T08:00:00-07:00",
-        "session_id": "demo-3",
-        "type": "manual"
-      },
-      "path": "tasks/tsk-01M3WPQCM57TERDGHAGH9TG5NF.md",
-      "review_after": null,
-      "source_refs": [
-        {
-          "id": "demo-3",
-          "kind": "owner-request"
-        }
-      ],
-      "status": "parked",
-      "title": "Book the car service",
-      "type": "task",
-      "updated_at": "2026-09-30T08:00:00-07:00"
     }
   ]
 }

@@ -32,7 +32,7 @@ python3 -m canonical_tasks validate   # check every task file; one bad file fail
 python3 -m canonical_tasks render     # write .ct/state.json and .ct/queue.md
 ```
 
-Every change is a dry run unless you pass `--write`. Or `pip install -e .` for a `ct` command.
+Changes to tasks are dry runs unless you pass `--write`. `render` always writes, since its output is a disposable view. Or `pip install -e .` for a `ct` command.
 
 [`examples/`](examples/) has three tasks built with these commands. Run `python3 examples/build_examples.py` to rebuild them.
 
@@ -43,7 +43,7 @@ One Markdown file per task, at `tasks/tsk-<ULID>.md`. Frontmatter is strict top-
 ```markdown
 ---
 type: task
-id: tsk-01M3WPQCM51RBDYBXB00Z57QTE
+id: tsk-01M3WQ58HKYA35FK8P5077EKN9
 title: "Decide on the job fair"
 status: done
 created_at: 2026-09-28T22:23:48-07:00
@@ -76,9 +76,9 @@ A decision: go or don't.
 |---|---|
 | `id` | `tsk-` plus a ULID. Permanent; the filename must match. |
 | `status` | `proposed`, `active`, `waiting`, `scheduled`, `parked`, `done`, `dismissed` |
-| `due` | The date the work is owed. Only an explicit change moves it. |
+| `due` | The date the work is owed. Only an explicit change moves it, and parking clears it. |
 | `review_after` | When a `waiting` or `scheduled` task comes back into view. |
-| `source_refs` | Where the task came from. At least one; any `path` must resolve inside the root. |
+| `source_refs` | Where the task came from. At least one; any `path` must resolve inside the root, symlinks included. |
 | `origin` | How the task was created (`manual` needs an `area`; `signal` needs both keys below). |
 | `signal_key` | Optional. The obligation: this thread, this kind of action, e.g. `mail:18f2c7a1:reply`. |
 | `occurrence_key` | Optional. This particular turn of it, so a new reply is distinct from one already handled. |
@@ -102,11 +102,15 @@ A new turn of a closed obligation gets a new task (a successor), never a reopene
 Every verb (`done`, `wait`, `park`, `schedule`, `dismiss`, `reactivate`, `reschedule`, `note`) is spelled as one **claim**: task ID, requested disposition, declared outcome, and how the outcome is known. [`actions.py`](canonical_tasks/actions.py) then:
 
 1. Validates the whole ledger first. One corrupt file blocks every change.
-2. Checks the transition table and the closing rule. `done` without evidence or attestation is held.
-3. Appends a record to `tasks/_log.jsonl`. One record per task per session, so a retried session is a no-op, and a conflicting retry is refused rather than overwriting history.
-4. Appends one event row to the task file, refusing if the file changed since the claim was read, and restoring the original bytes if the result doesn't validate.
+2. Checks the transition table and the closing rule. `done` without evidence or attestation is held. Evidence fields must be non-empty text; nothing is coerced.
+3. Builds every changed task file in memory and validates the result.
+4. Only then writes: each task file gets one event row, replaced atomically and only if it's unchanged since it was read. Then `tasks/_log.jsonl` gets one record per task.
+
+If any step refuses, nothing is written. The log keeps one record per task per session: re-running a session's claim is a no-op, and a different claim under the same session ID is refused rather than overwriting history.
 
 The code checks that a close *carries* evidence. It can't check that the evidence says what an agent claims. That part is on the person, and it's quick because evidence is a pointer.
+
+Validation checks each file's shape and the rules across files (unique IDs, one open task per occurrence). It doesn't replay the event log to prove the current status was reached legally. The files are meant to be editable by hand, and a hand edit is trusted the way a commit is. The rules above bind the tools, not the owner.
 
 ## Identity and duplicates
 
@@ -119,7 +123,7 @@ The code checks that a close *carries* evidence. It can't check that the evidenc
 | Same obligation, new occurrence, task closed | `create-successor` |
 | No stable source ID | `unkeyed-proposal`: never merged automatically |
 
-Two open tasks for the same occurrence are refused. Two tasks with the same title from different sources only raise a warning. Titles are never used to merge.
+Two open tasks for the same occurrence are refused. For two items with the same title from different sources, `collision_warning` gives a planner something to show a person; nothing here merges on a title.
 
 ## What's not here
 
@@ -131,7 +135,7 @@ The parts of my system that depend on my own setup: the scripts that turn my cal
 python3 -m unittest discover -s tests -t .
 ```
 
-40 tests, including [`tests/test_adversarial.py`](tests/test_adversarial.py): the same input twice, renames that must keep identity, two sources with one title, completions without proof, illegal and reopening transitions, and eight kinds of corrupt task file. Each refusal is checked to leave the files on disk unchanged.
+Includes [`tests/test_adversarial.py`](tests/test_adversarial.py): the same input twice, renames that must keep identity, two sources with one title, completions without proof, illegal and reopening transitions, and eight kinds of corrupt task file. Each refusal is checked to leave the files on disk unchanged. [`tests/test_review_fixes.py`](tests/test_review_fixes.py) covers the cases a pre-release review found: null evidence, refusals after preparation, retries, malformed fields, and symlinks.
 
 ## License
 

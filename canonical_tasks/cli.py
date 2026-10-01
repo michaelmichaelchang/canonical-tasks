@@ -10,10 +10,11 @@
     ct reschedule <task-id> --due YYYY-MM-DD|null --outcome "..."
     ct note       <task-id> --outcome "..."      # progress, no state change
     ct validate                                  # check every task file
-    ct render                                    # write .ct/state.json and .ct/queue.md
+    ct render                                    # write .ct/state.json and .ct/queue.md (always writes)
     ct new-id                                    # print a fresh task ID
 
-Changes are dry runs unless you pass --write.
+Changes to tasks are dry runs unless you pass --write. render always writes its
+generated files, which are disposable views.
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ import argparse
 import datetime as dt
 import json
 import sys
+import uuid
 from pathlib import Path
 
 from . import actions
@@ -51,12 +53,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reason", help="a short controlled reason, for your own later review")
     parser.add_argument("--session", help="session id; one change per task per session (default: unique per run)")
     parser.add_argument("--now", help="override the timestamp (ISO-8601 with offset)")
-    parser.add_argument("--write", action="store_true", help="apply the change instead of printing a dry run")
+    parser.add_argument("--write", action="store_true", help="apply a task change instead of printing a dry run")
     args = parser.parse_args(argv)
 
     root = args.root.resolve()
     now = args.now or _now()
-    session = args.session or f"cli-{now}"
+    session = args.session or f"cli-{uuid.uuid4().hex[:12]}"
     try:
         if args.now:
             parse_timestamp(args.now, "--now", Path("<argument>"))

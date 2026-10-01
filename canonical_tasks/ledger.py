@@ -89,7 +89,11 @@ def parse_scalar(raw: str, *, path: Path, line_number: int) -> Any:
 
 
 def parse_task(path: Path) -> ParsedTask:
-    raw = path.read_bytes()
+    return parse_task_text(path.read_bytes(), path)
+
+
+def parse_task_text(raw: bytes, path: Path) -> ParsedTask:
+    """Parse task bytes as if they lived at ``path``, without touching disk."""
     text = raw.decode("utf-8")
     lines = text.splitlines()
     if not lines or lines[0] != "---":
@@ -156,11 +160,10 @@ def resolve_root_path(root: Path, relative: str, task_path: Path) -> Path:
     relative_path = Path(relative)
     if relative_path.is_absolute() or ".." in relative_path.parts:
         raise LedgerError(f"{task_path}: source path escapes the root: {relative}")
-    # Compare logical paths, not resolved ones, so a deliberate symlink inside
-    # the root stays valid provenance.
-    candidate = (root / relative_path).absolute()
+    # Resolve symlinks, so a link inside the root can't point outside it.
+    candidate = (root / relative_path).resolve()
     try:
-        candidate.relative_to(root.absolute())
+        candidate.relative_to(root.resolve())
     except ValueError as error:
         raise LedgerError(f"{task_path}: source path escapes the root: {relative}") from error
     return candidate
@@ -188,7 +191,7 @@ def validate_task(task: ParsedTask, root: Path) -> list[str]:
     if not isinstance(fields["title"], str) or not fields["title"].strip():
         errors.append("title must be a non-empty string")
     status = fields["status"]
-    if status not in STATUSES:
+    if not isinstance(status, str) or status not in STATUSES:
         errors.append(f"status must be one of {sorted(STATUSES)}")
 
     try:
@@ -262,6 +265,9 @@ def load_ledger(tasks_dir: Path, root: Path) -> list[ParsedTask]:
     tasks: list[ParsedTask] = []
     errors: list[str] = []
     for path in sorted(tasks_dir.glob("tsk-*.md")):
+        if path.is_symlink():
+            errors.append(f"{path}: task files must be regular files, not symlinks")
+            continue
         try:
             task = parse_task(path)
             task_errors = validate_task(task, root)
@@ -280,7 +286,8 @@ def load_ledger(tasks_dir: Path, root: Path) -> list[ParsedTask]:
                 errors.append(f"duplicate task id {task_id}: {ids[task_id]} and {task.path}")
             ids[task_id] = task.path
         occurrence = task.fields.get("occurrence_key")
-        if occurrence and task.fields.get("status") in NONTERMINAL:
+        status = task.fields.get("status")
+        if isinstance(occurrence, str) and occurrence and isinstance(status, str) and status in NONTERMINAL:
             if occurrence in occurrences:
                 errors.append(
                     f"duplicate nonterminal occurrence {occurrence}: "
@@ -384,7 +391,9 @@ def task_record(task: ParsedTask, root: Path) -> dict[str, Any]:
     return record
 
 
-def render_outputs(tasks: list[ParsedTask], root: Path, generated_at: str) -> tuple[str, str]:
+def render_outputs(
+    tasks: list[ParsedTask], root: Path, generated_at: str, out_dir: Path | None = None
+) -> tuple[str, str]:
     records = [task_record(task, root) for task in tasks]
     revision_input = json.dumps(records, sort_keys=True, separators=(",", ":")).encode()
     revision = hashlib.sha256(revision_input).hexdigest()[:16]
@@ -421,7 +430,10 @@ def render_outputs(tasks: list[ParsedTask], root: Path, generated_at: str) -> tu
             lines.append("_None._")
             continue
         for record in rows:
-            lines.append(f"- [{record['status']}] [{record['title']}]({record['path']}) `{record['id']}`")
+            link = record["path"]
+            if out_dir is not None:
+                link = Path(os.path.relpath(root.resolve() / record["path"], out_dir.resolve())).as_posix()
+            lines.append(f"- [{record['status']}] [{record['title']}]({link}) `{record['id']}`")
     return state_text, "\n".join(lines) + "\n"
 
 
@@ -439,7 +451,7 @@ def atomic_write(path: Path, content: str) -> None:
 def render_ledger(tasks_dir: Path, out_dir: Path, root: Path, generated_at: str) -> dict[str, Any]:
     """Validate, then write the index. An invalid ledger writes nothing."""
     tasks = load_ledger(tasks_dir, root)
-    state_text, queue_text = render_outputs(tasks, root, generated_at)
+    state_text, queue_text = render_outputs(tasks, root, generated_at, out_dir)
     atomic_write(out_dir / "state.json", state_text)
     atomic_write(out_dir / "queue.md", queue_text)
     return {"tasks": len(tasks), "index_revision": json.loads(state_text)["index_revision"]}
