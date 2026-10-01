@@ -25,7 +25,7 @@ python3 -m canonical_tasks new --title "Reply to Alex" --area work \
     --outcome "Alex has the revised contract." --source-key mail:18f2c7a1 --write
 
 python3 -m canonical_tasks wait  tsk-... --outcome "Alex is checking with legal." --review-after 2026-10-02 --write
-python3 -m canonical_tasks done  tsk-... --outcome "Sent." --evidence "mail:18f2c7a1=reply sent in thread" --write
+python3 -m canonical_tasks done  tsk-... --outcome "Sent." --evidence "mail:18f2c7a1@2026-09-30=reply sent in thread" --write
 python3 -m canonical_tasks done  tsk-... --outcome "Not going." --attest "not going. close it" --write
 
 python3 -m canonical_tasks validate   # check every task file; one bad file fails the whole ledger
@@ -43,7 +43,7 @@ One Markdown file per task, at `tasks/tsk-<ULID>.md`. Frontmatter is strict top-
 ```markdown
 ---
 type: task
-id: tsk-01M3WQBP0HJGQVF9YZKXNKDPTJ
+id: tsk-01M3WQRQX0AXR1CBDBYJFEFTXA
 title: "Decide on the job fair"
 status: done
 created_at: 2026-09-28T22:23:48-07:00
@@ -84,6 +84,8 @@ A decision: go or don't.
 | `occurrence_key` | Optional. This particular turn of it, so a new reply is distinct from one already handled. |
 | `completion_check` | What "done" means for this task. |
 
+Evidence is `source_ref`, `observed_revision` (which version of the source you looked at), and `assertion`, all non-empty text. On the command line it's `REF=ASSERTION`, or `REF@REVISION=ASSERTION` to record the version; without one, the revision is `unversioned`.
+
 The event log only grows. Every change appends one row; nothing is rewritten.
 
 ## States
@@ -106,7 +108,7 @@ Every verb (`done`, `wait`, `park`, `schedule`, `dismiss`, `reactivate`, `resche
 3. Builds every changed task file in memory and validates the result.
 4. Only then writes: first one record per task to `tasks/_log.jsonl`, then one event row to each task file, replaced atomically and only if it's unchanged since it was read.
 
-If any step refuses, nothing is written. If the disk fails after writing has started, the command says so (`ERROR`, not `REFUSED`) and names the session; re-running with that `--session` applies whatever the log holds that a task file doesn't. The log keeps one record per task per session: re-running the same claim is a no-op, and a claim that differs in any way (outcome, evidence, dates, reason) under the same session ID is refused rather than overwriting history.
+If any step refuses, nothing is written. If the disk fails after writing has started, the command says so (`ERROR`, not `REFUSED`) and names the session; re-running with that `--session` applies whatever the log holds that a task file doesn't. An append the disk never finished (a last log line with no newline) was never a committed record, so it's trimmed before the next append. The log keeps one record per task per session: re-running the same claim is a no-op, and a claim that differs in any way (outcome, evidence, dates, reason) under the same session ID is refused rather than overwriting history.
 
 The code checks that a close *carries* evidence. It can't check that the evidence says what an agent claims. That part is on the person, and it's quick because evidence is a pointer.
 

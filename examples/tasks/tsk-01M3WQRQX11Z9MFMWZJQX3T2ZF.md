@@ -1,6 +1,6 @@
 ---
 type: task
-id: tsk-01M3WQBP0J2FT6YBY9CG1SVZZH
+id: tsk-01M3WQRQX11Z9MFMWZJQX3T2ZF
 title: "Book the car service"
 status: parked
 created_at: 2026-09-29T08:00:00-07:00
@@ -26,4 +26,4 @@ A service appointment on the calendar.
 | At | Event | From | To | Detail |
 |---|---|---|---|---|
 | 2026-09-29T08:00:00-07:00 | created | — | active | Created directly (session `demo-3`) |
-| 2026-09-30T08:00:00-07:00 | reconciled | active | parked | due 2026-10-03 → — · Not this month. (record `rec-338c458f69781fa5`, verification not-applicable) |
+| 2026-09-30T08:00:00-07:00 | reconciled | active | parked | due 2026-10-03 → — · Not this month. (record `rec-a740a5ff29abc39e`, verification not-applicable) |

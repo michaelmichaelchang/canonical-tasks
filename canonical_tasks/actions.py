@@ -65,8 +65,7 @@ def canonical_json(value: Any) -> str:
 def claim_fingerprint(claim: dict[str, Any]) -> str:
     """The meaning of a claim, for telling a retry from a different claim.
 
-    Evidence ``observed_revision`` is left out: the CLI stamps it with the
-    current time, so it differs on every retry without changing the meaning.
+    Every evidence field counts, including ``observed_revision``.
     """
     evidence = claim.get("evidence") or []
     meaning = {
@@ -74,7 +73,8 @@ def claim_fingerprint(claim: dict[str, Any]) -> str:
         "declared_outcome": str(claim.get("declared_outcome", "")).strip(),
         "verification": claim.get("verification", "pending"),
         "attestation": claim.get("attestation"),
-        "evidence": [[e.get("source_ref"), e.get("assertion")] if isinstance(e, dict) else e for e in evidence]
+        "evidence": [[e.get("source_ref"), e.get("observed_revision"), e.get("assertion")]
+                     if isinstance(e, dict) else e for e in evidence]
         if isinstance(evidence, list) else evidence,
         "review_after": claim.get("review_after"),
         "due": claim.get("due", "__unset__"),
@@ -239,11 +239,26 @@ def build_records(
     return records
 
 
+def torn_tail_length(log_path: Path) -> int:
+    """Bytes after the last newline: an append the disk never finished."""
+    if not log_path.exists():
+        return 0
+    data = log_path.read_bytes()
+    return 0 if not data or data.endswith(b"\n") else len(data) - (data.rfind(b"\n") + 1)
+
+
 def load_log(log_path: Path) -> dict[str, dict[str, Any]]:
-    """Every record in the log by record_id. A corrupt line refuses."""
+    """Every record in the log by record_id. A corrupt complete line refuses.
+
+    An unfinished last line (no trailing newline) is a torn append, never a
+    committed record, so it's ignored here and trimmed before the next append.
+    """
     existing: dict[str, dict[str, Any]] = {}
     if log_path.exists():
-        for line_number, line in enumerate(log_path.read_text().splitlines(), start=1):
+        text = log_path.read_bytes()
+        torn = torn_tail_length(log_path)
+        complete = text[: len(text) - torn].decode("utf-8")
+        for line_number, line in enumerate(complete.splitlines(), start=1):
             if not line.strip():
                 continue
             try:
@@ -354,11 +369,15 @@ def prepare_writes(root: Path, records: list[dict[str, Any]]) -> list[tuple[Path
     return prepared
 
 
-def commit_writes(prepared: list[tuple[Path, str, bytes]]) -> list[Path]:
-    """Re-check every file is unchanged, then replace each one atomically."""
+def verify_unchanged(prepared: list[tuple[Path, str, bytes]]) -> None:
     for path, sha, _ in prepared:
         if hashlib.sha256(path.read_bytes()).hexdigest() != sha:
             raise Refusal(f"{path.name} changed while this operation was running; nothing written")
+
+
+def commit_writes(prepared: list[tuple[Path, str, bytes]]) -> list[Path]:
+    """Re-check every file is unchanged, then replace each one atomically."""
+    verify_unchanged(prepared)
     for path, _, new_bytes in prepared:
         atomic_write(path, new_bytes.decode("utf-8"))
     return [path for path, _, _ in prepared]
@@ -389,10 +408,12 @@ def claim_for_verb(
             review_after = task.get("review_after")
     items = []
     for item in evidence or []:
-        ref, _, assertion = item.partition("=")
+        pointer, _, assertion = item.partition("=")
+        ref, _, revision = pointer.partition("@")
         if not ref or not assertion:
-            raise Refusal(f"evidence must be REF=ASSERTION, got {item!r}")
-        items.append({"source_ref": ref, "observed_revision": now, "assertion": assertion})
+            raise Refusal(f"evidence must be REF=ASSERTION or REF@REVISION=ASSERTION, got {item!r}")
+        # A fixed default keeps a retried command identical to the original.
+        items.append({"source_ref": ref, "observed_revision": revision or "unversioned", "assertion": assertion})
     if attest:
         verification = "owner-attested"
     elif items:
@@ -428,6 +449,7 @@ def run_claims(root: Path, claims: list[dict[str, Any]], *, session_id: str, now
     the record, and re-running the same session applies whatever is missing.
     """
     log_path = root / LOG_RELATIVE
+    resolve_tasks(root)  # the whole ledger must be valid, even for a recovery retry
     existing = load_log(log_path)
     pending: list[dict[str, Any]] = []
     already: list[dict[str, Any]] = []
@@ -448,9 +470,14 @@ def run_claims(root: Path, claims: list[dict[str, Any]], *, session_id: str, now
     # Logged but not yet applied (an earlier run failed mid-write): finish it.
     prepared = prepare_writes(root, already + records)
     to_log = new_log_records(existing, records)
+    verify_unchanged(prepared)  # last check before anything is written; refusal here writes nothing
     try:
         if to_log:
             log_path.parent.mkdir(parents=True, exist_ok=True)
+            torn = torn_tail_length(log_path)
+            if torn:
+                with log_path.open("r+b") as handle:
+                    handle.truncate(log_path.stat().st_size - torn)
             with log_path.open("a") as handle:
                 for record in to_log:
                     handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
@@ -460,6 +487,13 @@ def run_claims(root: Path, claims: list[dict[str, Any]], *, session_id: str, now
     except OSError as error:
         raise PartialWrite(
             f"disk error after writing began ({error}); re-run with --session {session_id} to finish"
+        ) from error
+    except Refusal as error:
+        # A task file changed between the last check and the write. The log
+        # already holds the record, so this is not a clean refusal.
+        raise PartialWrite(
+            f"{error}; the log recorded this claim but the task file was not updated. "
+            "Review the file, then make a new claim with a new session"
         ) from error
     return {"mode": "write", "appended": len(to_log), "idempotent": len(already),
             "written": [path.relative_to(root).as_posix() for path in written], "records": already + records}

@@ -142,6 +142,71 @@ class ReviewFixes(RootCase):
         log_lines = (self.root / actions.LOG_RELATIVE).read_text().splitlines()
         self.assertEqual(len(log_lines), 1)
 
+    def _attested(self, task_id: str) -> dict:
+        return {"task_id": task_id, "disposition": "done", "declared_outcome": "sent",
+                "verification": "owner-attested", "attestation": "sent"}
+
+    def test_recovery_retry_still_requires_a_valid_ledger(self) -> None:
+        from unittest import mock
+        task_id = self.add_task()
+        with mock.patch.object(actions, "commit_writes", side_effect=OSError("disk full")):
+            with self.assertRaises(actions.PartialWrite):
+                actions.run_claims(self.root, [self._attested(task_id)], session_id="s", now=LATER, write=True)
+        bad = self.add_task()
+        (self.tasks / f"{bad}.md").write_text("not a task\n")
+        before = snapshot(self.root)
+        with self.assertRaisesRegex(actions.Refusal, "ledger invalid"):
+            actions.run_claims(self.root, [self._attested(task_id)], session_id="s", now=LATER, write=True)
+        self.assertEqual(snapshot(self.root), before)
+
+    def test_torn_log_append_is_trimmed_and_recovery_works(self) -> None:
+        first, second = self.add_task(), self.add_task()
+        actions.run_claims(self.root, [self._attested(first)], session_id="s1", now=LATER, write=True)
+        log = self.root / actions.LOG_RELATIVE
+        with log.open("a") as handle:
+            handle.write('{"record_id": "rec-torn", "kind": "task-recon')  # the disk filled up here
+        actions.run_claims(self.root, [self._attested(second)], session_id="s2", now=LATER, write=True)
+        lines = log.read_text().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(all(json.loads(line)["record_id"].startswith("rec-") for line in lines))
+        self.assertEqual(self.status_of(second), "done")
+
+    def test_edit_during_write_reports_a_partial_write_not_a_refusal(self) -> None:
+        from unittest import mock
+        task_id = self.add_task()
+        real_verify = actions.verify_unchanged
+        calls = {"n": 0}
+
+        def editor_saves_between_checks(prepared):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise actions.Refusal("task changed while this operation was running; nothing written")
+            return real_verify(prepared)
+
+        with mock.patch.object(actions, "verify_unchanged", side_effect=editor_saves_between_checks):
+            with self.assertRaisesRegex(actions.PartialWrite, "log recorded this claim"):
+                actions.run_claims(self.root, [self._attested(task_id)], session_id="s", now=LATER, write=True)
+
+    def test_changed_evidence_revision_is_a_different_claim(self) -> None:
+        task_id = self.add_task()
+        claim = {"task_id": task_id, "disposition": "done", "declared_outcome": "sent", "verification": "verified",
+                 "evidence": [{"source_ref": "mail:t1", "observed_revision": "rev-1", "assertion": "reply sent"}]}
+        actions.run_claims(self.root, [claim], session_id="s", now=LATER, write=True)
+        changed = dict(claim, evidence=[dict(claim["evidence"][0], observed_revision="rev-2")])
+        with self.assertRaisesRegex(actions.Refusal, "different claim"):
+            actions.run_claims(self.root, [changed], session_id="s", now=LATER, write=False)
+
+    def test_cli_evidence_is_deterministic_so_retries_match(self) -> None:
+        task_id = self.add_task()
+        first = actions.claim_for_verb(self.root, "done", task_id, outcome="sent", now=LATER,
+                                       evidence=["mail:t1=reply sent"])
+        again = actions.claim_for_verb(self.root, "done", task_id, outcome="sent", now="2026-09-30T08:00:00-07:00",
+                                       evidence=["mail:t1=reply sent"])
+        self.assertEqual(actions.claim_fingerprint(first), actions.claim_fingerprint(again))
+        versioned = actions.claim_for_verb(self.root, "done", task_id, outcome="sent", now=LATER,
+                                           evidence=["mail:t1@rev-9=reply sent"])
+        self.assertEqual(versioned["evidence"][0]["observed_revision"], "rev-9")
+
 
 if __name__ == "__main__":
     unittest.main()

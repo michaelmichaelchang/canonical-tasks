@@ -1,7 +1,7 @@
 {
   "do_not_edit": true,
   "generated_at": "2026-10-02T06:00:00-07:00",
-  "index_revision": "8cfdde79ef1214b6",
+  "index_revision": "9d26f3f88aef5ea3",
   "kind": "generated-task-state",
   "schema_version": 1,
   "task_count": 3,
@@ -12,16 +12,16 @@
         "expected_outcome": "Alex has the revised contract, or knows when to expect it.",
         "kind": "owner-declared"
       },
-      "content_sha256": "73dffe6f75cb2fa91434aa8db1b101b83c1c071b89d8c40854b595b9a77c4034",
+      "content_sha256": "33be46b708e8c740c91fc61299097ac4460242de7ca97d87fff1bca4d1053519",
       "created_at": "2026-09-28T09:05:00-07:00",
       "due": null,
-      "id": "tsk-01M3WQBP0G4DQ094A4DTJF8XZZ",
+      "id": "tsk-01M3WQRQWZ2AKMY0R2VZ53F2FG",
       "origin": {
         "created_at": "2026-09-28T09:05:00-07:00",
         "session_id": "demo-1",
         "type": "manual"
       },
-      "path": "tasks/tsk-01M3WQBP0G4DQ094A4DTJF8XZZ.md",
+      "path": "tasks/tsk-01M3WQRQWZ2AKMY0R2VZ53F2FG.md",
       "review_after": "2026-10-02",
       "source_refs": [
         {
@@ -45,16 +45,16 @@
         "expected_outcome": "A decision: go or don't.",
         "kind": "owner-declared"
       },
-      "content_sha256": "de37885d86bc7cae296d3b82f0cefedddcc01ec429414d59c3e5d889575e32ac",
+      "content_sha256": "143febb07a7fbd827ea5ead88dbba49e0f964f3801f7ee1b941e618933094f04",
       "created_at": "2026-09-28T22:23:48-07:00",
       "due": null,
-      "id": "tsk-01M3WQBP0HJGQVF9YZKXNKDPTJ",
+      "id": "tsk-01M3WQRQX0AXR1CBDBYJFEFTXA",
       "origin": {
         "created_at": "2026-09-28T22:23:48-07:00",
         "session_id": "demo-2",
         "type": "manual"
       },
-      "path": "tasks/tsk-01M3WQBP0HJGQVF9YZKXNKDPTJ.md",
+      "path": "tasks/tsk-01M3WQRQX0AXR1CBDBYJFEFTXA.md",
       "review_after": null,
       "source_refs": [
         {
@@ -78,16 +78,16 @@
         "expected_outcome": "A service appointment on the calendar.",
         "kind": "owner-declared"
       },
-      "content_sha256": "f8ce618184525dbacc757b32d3e8d29d25ce9a6a7acedcfe36ab84c0c0b93720",
+      "content_sha256": "c43af465b82b6c99c47c5ccb92a9e8a750b9eeb5e23be12fc59be0d1ce6e5efb",
       "created_at": "2026-09-29T08:00:00-07:00",
       "due": null,
-      "id": "tsk-01M3WQBP0J2FT6YBY9CG1SVZZH",
+      "id": "tsk-01M3WQRQX11Z9MFMWZJQX3T2ZF",
       "origin": {
         "created_at": "2026-09-29T08:00:00-07:00",
         "session_id": "demo-3",
         "type": "manual"
       },
-      "path": "tasks/tsk-01M3WQBP0J2FT6YBY9CG1SVZZH.md",
+      "path": "tasks/tsk-01M3WQRQX11Z9MFMWZJQX3T2ZF.md",
       "review_after": null,
       "source_refs": [
         {

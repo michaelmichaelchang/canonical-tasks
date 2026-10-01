@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-key", action="append", help="new: kind:id of a source thread; repeatable")
     parser.add_argument("--outcome", help="what happened, or for new, the desired outcome")
     parser.add_argument("--attest", help="your own words; makes a close owner-attested")
-    parser.add_argument("--evidence", action="append", help="REF=ASSERTION; repeatable; makes a close verified")
+    parser.add_argument("--evidence", action="append", help="REF=ASSERTION or REF@REVISION=ASSERTION; repeatable; makes a close verified")
     parser.add_argument("--review-after", help="YYYY-MM-DD; when a waiting or scheduled task comes back")
     parser.add_argument("--due", help="YYYY-MM-DD, or null with reschedule")
     parser.add_argument("--reason", help="a short controlled reason, for your own later review")
