@@ -108,6 +108,45 @@ class TaskActionTests(RootCase):
         self.assertEqual([t.fields["id"] for t in tasks], [result["task_id"]])
         self.assertEqual(tasks[0].fields["source_refs"][1]["source_key"], "mail:18f2c7a1")
 
+    def test_link_adds_a_source_without_changing_status(self):
+        task_id = self.add_task(status="waiting", review_after="2026-10-05")
+        code, result = self.run_ct("link", task_id, "--source-key", "mail:2b9e04d7",
+                                   "--outcome", "Her reply is on this thread", "--write")
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["added"], ["mail:2b9e04d7"])
+        task = load_ledger(self.tasks, self.root)[0]
+        self.assertEqual(task.fields["status"], "waiting")
+        self.assertEqual([r["source_key"] for r in task.fields["source_refs"]], ["mail:18f2c7a1", "mail:2b9e04d7"])
+        self.assertIn("| linked | waiting | waiting | `mail:2b9e04d7` — Her reply is on this thread", task.body)
+        self.assertFalse((self.tasks / "_log.jsonl").exists())  # not a claim; nothing in the claim log
+
+    def test_link_works_on_a_closed_task_and_is_idempotent(self):
+        task_id = self.add_task(status="dismissed")
+        self.run_ct("link", task_id, "--source-key", "mail:aa11", "--outcome", "Notification for the same thread", "--write")
+        code, result = self.run_ct("link", task_id, "--source-key", "mail:aa11", "--outcome", "again", "--write")
+        self.assertEqual(code, 0)
+        self.assertEqual(result["added"], [])
+        self.assertEqual(result["already_linked"], ["mail:aa11"])
+        text = (self.tasks / f"{task_id}.md").read_text()
+        self.assertEqual(text.count("| linked |"), 1)
+        self.assertEqual(self.status_of(task_id), "dismissed")
+
+    def test_link_dry_run_and_refusals_write_nothing(self):
+        task_id = self.add_task()
+        path = self.tasks / f"{task_id}.md"
+        before = path.read_bytes()
+        code, result = self.run_ct("link", task_id, "--source-key", "mail:aa11", "--outcome", "x")
+        self.assertEqual((code, result["mode"]), (0, "dry-run"))
+        code, err = self.run_ct("link", task_id, "--source-key", "no-colon", "--outcome", "x", "--write")
+        self.assertEqual(code, 3)
+        self.assertIn("kind:id", err)
+        code, err = self.run_ct("link", task_id, "--outcome", "x", "--write")
+        self.assertEqual(code, 3)
+        code, err = self.run_ct("link", "tsk-01M3WQRQWZ2AKMY0R2VZ53F2FG", "--source-key", "mail:aa11", "--outcome", "x", "--write")
+        self.assertEqual(code, 3)
+        self.assertIn("unknown task id", err)
+        self.assertEqual(path.read_bytes(), before)
+
     def test_file_edited_after_claim_resolved_refuses(self):
         task_id = self.add_task()
         claim = actions.claim_for_verb(self.root, "dismiss", task_id, outcome="Not needed", now=LATER)

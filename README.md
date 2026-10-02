@@ -27,12 +27,13 @@ python3 -m canonical_tasks new --title "Reply to Alex" --area work \
 python3 -m canonical_tasks wait  tsk-... --outcome "Alex is checking with legal." --review-after 2026-10-02 --write
 python3 -m canonical_tasks done  tsk-... --outcome "Sent." --evidence "mail:18f2c7a1@2026-09-30=reply sent in thread" --write
 python3 -m canonical_tasks done  tsk-... --outcome "Not going." --attest "not going. close it" --write
+python3 -m canonical_tasks link  tsk-... --source-key mail:2b9e04d7 --outcome "Alex replied on a new thread." --write
 
 python3 -m canonical_tasks validate   # check every task file; one bad file fails the whole ledger
 python3 -m canonical_tasks render     # write .ct/state.json and .ct/queue.md
 ```
 
-Changes to tasks are dry runs unless you pass `--write`. `render` always writes, since its output is a disposable view. Or `pip install -e .` for a `ct` command.
+Changes to tasks are dry runs unless you pass `--write`. `render` always writes, since its output is a disposable view. Changes don't re-render it, so if a plan or dashboard reads `.ct/state.json`, run `render` after each write. Otherwise it keeps showing a task you just closed. Or `pip install -e .` for a `ct` command.
 
 [`examples/`](examples/) has three tasks built with these commands. Run `python3 examples/build_examples.py` to rebuild them.
 
@@ -109,6 +110,8 @@ Every verb (`done`, `wait`, `park`, `schedule`, `dismiss`, `reactivate`, `resche
 4. Only then writes: first one record per task to `tasks/_log.jsonl`, then one event row to each task file, replaced atomically and only if it's unchanged since it was read.
 
 If any step refuses, nothing is written. If the disk fails after writing has started, the command says so (`ERROR`, not `REFUSED`) and names the session; re-running with that `--session` applies whatever the log holds that a task file doesn't. An append the disk never finished (a last log line with no newline) was never a committed record, so it's trimmed before the next append. The log keeps one record per task per session: re-running the same claim is a no-op, and a claim that differs in any way (outcome, evidence, dates, reason) under the same session ID is refused rather than overwriting history.
+
+`link` is the one change that isn't a claim. It adds source keys to an existing task, open or closed, and leaves the status alone. Use it when a source turns out to belong to a task that was created without it: a reply on a new thread, or a notification email about a conversation you already decided. Without the key, a plan reading that source has nothing tying it to the task and treats it as new work. Like `new`, it writes one event row (`linked`) and nothing to the claim log. Linking a key the task already has does nothing.
 
 The code checks that a close *carries* evidence. It can't check that the evidence says what an agent claims. That part is on the person, and it's quick because evidence is a pointer.
 

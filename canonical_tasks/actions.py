@@ -499,6 +499,71 @@ def run_claims(root: Path, claims: list[dict[str, Any]], *, session_id: str, now
             "written": [path.relative_to(root).as_posix() for path in written], "records": already + records}
 
 
+def source_refs_for(source_keys: list[str] | None) -> list[dict[str, Any]]:
+    """Source threads a task is about, as `kind:id` keys, so a plan reading those
+    sources can treat them as handled while the task covers them."""
+    refs = []
+    for key in source_keys or []:
+        kind, _, ident = key.partition(":")
+        if not kind or not ident:
+            raise Refusal(f"source key must look like kind:id, got {key!r}")
+        refs.append({"kind": kind, "id": ident, "source_key": key})
+    return refs
+
+
+def link_sources(
+    root: Path, task_id: str, *, source_keys: list[str] | None, outcome: str, now: str,
+    session_id: str, write: bool,
+) -> dict[str, Any]:
+    """Attach source keys to an existing task, open or closed. Dry-run unless ``write``.
+
+    For a source that turns out to belong to a task created without it: a reply
+    that arrives on a thread you're already waiting on, or a notification email
+    about a conversation you already decided. Without the key, a plan reading
+    that source has nothing tying it to the task and judges it as new work.
+    The status doesn't change; the task file gets one ``linked`` event row.
+    Linking a key the task already has is a no-op.
+    """
+    if not source_keys:
+        raise Refusal("link needs at least one source key")
+    if not (outcome or "").strip():
+        raise Refusal("outcome (why these sources belong to the task) is required")
+    task = resolve_tasks(root).get(task_id)
+    if task is None:
+        raise Refusal(f"{task_id}: unknown task id")
+    path = root / task["path"]
+    if path.is_symlink() or path.resolve().parent != (root / TASKS_DIR).resolve():
+        raise Refusal(f"{path} is not a regular file in {TASKS_DIR}/")
+    original = path.read_bytes()
+    parsed = parse_task_text(original, path)
+    refs = list(parsed.fields["source_refs"])
+    have = {ref.get("source_key") for ref in refs}
+    added = [ref for ref in source_refs_for(source_keys) if ref["source_key"] not in have]
+    result: dict[str, Any] = {"mode": "write" if write else "dry-run", "task_id": task_id,
+                              "status": task["status"], "added": [r["source_key"] for r in added],
+                              "already_linked": [k for k in source_keys if k in have]}
+    if not added:
+        return result
+    text = original.decode("utf-8")
+    if EVENT_ROW_HEADER not in text:
+        raise Refusal(f"{path.name} has no event log table")
+    keys = ", ".join(f"`{r['source_key']}`" for r in added)
+    status = task["status"]
+    text = text.rstrip("\n") + f"\n| {now} | linked | {status} | {status} | {keys} — {_cell(outcome)} (session `{session_id}`) |\n"
+    text = _set_frontmatter(text, "source_refs", json.dumps(refs + added, separators=(",", ":"), ensure_ascii=False))
+    text = _set_frontmatter(text, "updated_at", now)
+    new_bytes = text.encode("utf-8")
+    try:
+        errors = validate_task(parse_task_text(new_bytes, path), root)
+    except LedgerError as error:
+        errors = [str(error)]
+    if errors:
+        raise Refusal(f"{path.name} would fail validation after this change: {errors}")
+    if write:
+        commit_writes([(path, parsed.content_sha256, new_bytes)])
+    return result
+
+
 def create_task(
     root: Path, *, title: str, area: str, state: str, outcome: str, now: str, session_id: str,
     write: bool, due: str | None = None, review_after: str | None = None,
@@ -521,14 +586,7 @@ def create_task(
         raise Refusal("outcome (the desired outcome) is required")
     task_id = new_task_id()
     origin = {"type": "manual", "created_at": now, "session_id": session_id}
-    refs: list[dict[str, Any]] = [{"kind": "owner-request", "id": session_id}]
-    # Source threads the task is about, as `kind:id` keys, so a plan reading
-    # those sources can treat them as handled once the task closes.
-    for key in source_keys or []:
-        kind, _, ident = key.partition(":")
-        if not kind or not ident:
-            raise Refusal(f"source key must look like kind:id, got {key!r}")
-        refs.append({"kind": kind, "id": ident, "source_key": key})
+    refs: list[dict[str, Any]] = [{"kind": "owner-request", "id": session_id}] + source_refs_for(source_keys)
     check = {"kind": "owner-declared", "expected_outcome": outcome.strip()}
     compact = {"separators": (",", ":"), "ensure_ascii": False}
     note = "\n".join([
